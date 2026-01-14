@@ -23,7 +23,8 @@ jobs:
 
           # --- Configure these ---
           # Individual users (GitHub usernames), comma-separated
-          REVIEWERS: "njhale,g-linville,thedadams"
+          # Update this with your own GitHub username or collaborators
+          REVIEWERS: ""
 
           # Teams in your org (team slugs, not display names), comma-separated
           TEAM_REVIEWERS: ""
