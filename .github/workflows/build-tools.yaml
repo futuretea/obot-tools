@@ -9,12 +9,13 @@ on:
   push:
     branches:
       - main
+      - master
     tags:
       - "v*"
 
 jobs:
   oss-tools-build:
-    runs-on: depot-ubuntu-22.04
+    runs-on: ubuntu-latest
     concurrency:
       group: oss-tools-build
       cancel-in-progress: true
@@ -28,18 +29,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and Push Docker image
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         id: build-and-push
         with:
-          project: bbqjs4tj1g
           context: .
           push: true
-          pull: true
           target: tools
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ github.ref_type == 'tag' && format('ghcr.io/obot-platform/tools:{0}', github.ref_name) || format('ghcr.io/{0}:latest', github.repository) }}
+            ${{ github.ref_type == 'tag' && format('ghcr.io/futuretea/obot-tools:{0}', github.ref_name) || 'ghcr.io/futuretea/obot-tools:latest' }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.8.1
@@ -49,7 +51,7 @@ jobs:
       - name: Sign Images
         env:
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-          TAGS: ${{ github.ref_type == 'tag' && format('ghcr.io/obot-platform/tools:{0}', github.ref_name) || format('ghcr.io/{0}:latest', github.repository) }}
+          TAGS: ${{ github.ref_type == 'tag' && format('ghcr.io/futuretea/obot-tools:{0}', github.ref_name) || 'ghcr.io/futuretea/obot-tools:latest' }}
         run: |
           images=""
           for tag in ${TAGS}; do

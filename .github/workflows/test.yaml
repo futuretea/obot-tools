@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - master
 
 jobs:
   go-test:
@@ -28,14 +29,17 @@ jobs:
         run: make build
 
   image-build:
-    runs-on: depot-ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
-          project: bbqjs4tj1g
           context: .
           platforms: linux/amd64,linux/arm64
           target: tools
+          push: false
