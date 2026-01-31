@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -228,9 +229,34 @@ func (h *Handlers) GetIconURL() http.HandlerFunc {
 	})
 }
 
-// OAuthProxyHandler returns the underlying oauth2-proxy HTTP handler
+// OAuthProxyHandler returns the underlying oauth2-proxy HTTP handler with redirect middleware
 func (h *Handlers) OAuthProxyHandler() http.HandlerFunc {
-	return h.oauthProxy.ServeHTTP
+	return h.RedirectOn401Middleware(h.oauthProxy.ServeHTTP)
+}
+
+// RedirectOn401Middleware intercepts 401 responses and redirects to OAuth login flow
+func (h *Handlers) RedirectOn401Middleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next(wrapped, r)
+
+		// Only redirect on 401 for non-OAuth endpoints to avoid redirect loops
+		if wrapped.statusCode != http.StatusUnauthorized || isOAuthFlowEndpoint(r.URL.Path) {
+			return
+		}
+
+		h.logDebug("Intercepted 401, redirecting to OAuth login flow: %s", r.URL.Path)
+		startURL := "/oauth2/start?rd=" + url.QueryEscape(r.URL.RequestURI())
+		http.Redirect(w, r, startURL, http.StatusFound)
+	}
+}
+
+// isOAuthFlowEndpoint checks if the path is part of OAuth flow to avoid redirect loops
+func isOAuthFlowEndpoint(path string) bool {
+	return path == "/oauth2/start" ||
+		path == "/oauth2/callback" ||
+		path == "/oauth2/redirect" ||
+		path == "/oauth2/sign_out"
 }
 
 // writeJSON encodes v as JSON to the response writer
