@@ -272,14 +272,16 @@ func (h *Handlers) ListUserAuthGroups(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, groupsToInfos(groups))
 }
 
-// groupsToInfos converts Keycloak groups to GroupInfo slice
+// groupsToInfos converts Keycloak groups to GroupInfo slice.
+// Uses full path for both ID and Name to distinguish groups with the same name
+// under different parent groups (e.g., "/DevTeam/ELK" vs "/OpsTeam/ELK").
 func groupsToInfos(groups []client.Group) []state.GroupInfo {
 	if len(groups) == 0 {
 		return nil
 	}
 	result := make([]state.GroupInfo, len(groups))
 	for i, g := range groups {
-		result[i] = state.GroupInfo{ID: g.Path, Name: g.Name}
+		result[i] = state.GroupInfo{ID: g.Path, Name: g.Path}
 	}
 	return result
 }
