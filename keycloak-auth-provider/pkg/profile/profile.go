@@ -39,11 +39,16 @@ func (p *KeycloakProfile) GroupInfos() []state.GroupInfo {
 	if len(groups) == 0 {
 		groups = p.Groups
 	}
-	if len(groups) == 0 {
+	return pathsToGroupInfos(groups)
+}
+
+// pathsToGroupInfos converts group paths to GroupInfo slice
+func pathsToGroupInfos(paths []string) []state.GroupInfo {
+	if len(paths) == 0 {
 		return nil
 	}
-	result := make([]state.GroupInfo, len(groups))
-	for i, path := range groups {
+	result := make([]state.GroupInfo, len(paths))
+	for i, path := range paths {
 		result[i] = state.GroupInfo{ID: path, Name: path}
 	}
 	return result

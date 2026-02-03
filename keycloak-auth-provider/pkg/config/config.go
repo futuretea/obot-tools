@@ -123,8 +123,3 @@ func parseEmailDomains(domains string) []string {
 func (c *Config) UserInfoURL() string {
 	return strings.TrimRight(c.IssuerURL, "/") + userInfoEndpointSuffix
 }
-
-// GetUserInfoURL returns the UserInfo endpoint URL.
-//
-// Deprecated: Use UserInfoURL instead. This method exists for backward compatibility.
-func (c *Config) GetUserInfoURL() string { return c.UserInfoURL() }

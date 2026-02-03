@@ -21,8 +21,12 @@ import (
 
 const bearerPrefix = "Bearer "
 
-// groupClaimNames defines JWT claim names for group membership (checked in order)
-var groupClaimNames = []string{"groups", "full_group_path"}
+// groupClaimNames defines JWT claim names for group membership (checked in order).
+// IMPORTANT: full_group_path must be checked first because it contains the complete
+// path (e.g., "/developers") which matches the format used by ListAuthGroups.
+// The "groups" claim may only contain group names without path prefix (e.g., "developers"),
+// causing ACR permission checks to fail due to ID mismatch.
+var groupClaimNames = []string{"full_group_path", "groups"}
 
 // Handlers provides HTTP handlers for keycloak-auth-provider endpoints
 type Handlers struct {
@@ -205,25 +209,21 @@ func (h *Handlers) ListAuthGroups(w http.ResponseWriter, r *http.Request) {
 	h.logDebug("raw groups from API: %d top-level (filter=%q)", len(groups), nameFilter)
 
 	flatGroups := client.FlattenGroups(groups)
-	groupInfos := make([]state.GroupInfo, len(flatGroups))
-	for i, g := range flatGroups {
-		groupInfos[i] = state.GroupInfo{ID: g.Path, Name: g.Name}
-	}
-
-	h.logDebug("total groups after flattening: %d", len(groupInfos))
-	h.writeJSON(w, groupInfos)
+	h.logDebug("total groups after flattening: %d", len(flatGroups))
+	h.writeJSON(w, groupsToInfos(flatGroups))
 }
 
 // ListUserAuthGroups lists groups for a specific user via Keycloak Admin API.
-// Request body contains the Keycloak user ID (providerUserID).
+// Request body contains a user identifier (UUID or email).
+// If the identifier is not a valid UUID, it searches for the user by email first.
 // Returns empty list if group search is disabled or on any error.
 func (h *Handlers) ListUserAuthGroups(w http.ResponseWriter, r *http.Request) {
 	emptyGroups := []state.GroupInfo{}
 
-	// Read user ID from request body
-	userID, err := io.ReadAll(r.Body)
-	if err != nil || len(userID) == 0 {
-		h.logDebug("list user groups: empty or invalid user ID")
+	// Read user identifier from request body
+	userIdentifier, err := io.ReadAll(r.Body)
+	if err != nil || len(userIdentifier) == 0 {
+		h.logDebug("list user groups: empty or invalid user identifier")
 		h.writeJSON(w, emptyGroups)
 		return
 	}
@@ -241,21 +241,47 @@ func (h *Handlers) ListUserAuthGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := kc.GetUserGroups(r.Context(), string(userID))
+	// Resolve user ID: if identifier looks like an email, search for the user first
+	userID := string(userIdentifier)
+	if strings.Contains(userID, "@") {
+		h.logDebug("identifier contains @, searching user by email: %s", userID)
+		users, err := kc.SearchUsers(r.Context(), userID)
+		if err != nil {
+			h.logWarn("search user by email: %v", err)
+			h.writeJSON(w, emptyGroups)
+			return
+		}
+		if len(users) == 0 {
+			h.logDebug("no user found with email: %s", userID)
+			h.writeJSON(w, emptyGroups)
+			return
+		}
+		// Use the first matching user's ID
+		userID = users[0].ID
+		h.logDebug("resolved email %s to user ID: %s", string(userIdentifier), userID)
+	}
+
+	groups, err := kc.GetUserGroups(r.Context(), userID)
 	if err != nil {
 		h.logWarn("get user groups from Admin API: %v", err)
 		h.writeJSON(w, emptyGroups)
 		return
 	}
 
-	h.logDebug("user %s has %d groups", string(userID), len(groups))
+	h.logDebug("user %s has %d groups", userID, len(groups))
+	h.writeJSON(w, groupsToInfos(groups))
+}
 
-	groupInfos := make([]state.GroupInfo, len(groups))
-	for i, g := range groups {
-		groupInfos[i] = state.GroupInfo{ID: g.Path, Name: g.Name}
+// groupsToInfos converts Keycloak groups to GroupInfo slice
+func groupsToInfos(groups []client.Group) []state.GroupInfo {
+	if len(groups) == 0 {
+		return nil
 	}
-
-	h.writeJSON(w, groupInfos)
+	result := make([]state.GroupInfo, len(groups))
+	for i, g := range groups {
+		result[i] = state.GroupInfo{ID: g.Path, Name: g.Name}
+	}
+	return result
 }
 
 // GetIconURL returns a handler that fetches the user's profile picture URL
@@ -274,9 +300,12 @@ func (h *Handlers) OAuthProxyHandler() http.HandlerFunc {
 	return h.oauthProxy.ServeHTTP
 }
 
-// writeJSON encodes v as JSON to the response writer
+// writeJSON encodes v as JSON to the response writer with proper Content-Type
 func (h *Handlers) writeJSON(w http.ResponseWriter, v any) {
-	_ = json.NewEncoder(w).Encode(v)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		h.logError("encode JSON: %v", err)
+	}
 }
 
 func (h *Handlers) logDebug(format string, args ...any) {
@@ -293,8 +322,11 @@ func (h *Handlers) logError(format string, args ...any) {
 	fmt.Printf("ERROR: keycloak-auth-provider: "+format+"\n", args...)
 }
 
-// toGroupInfos converts group paths to GroupInfo slice using path as both ID and Name
+// toGroupInfos converts group paths to GroupInfo slice
 func toGroupInfos(paths []string) []state.GroupInfo {
+	if len(paths) == 0 {
+		return nil
+	}
 	result := make([]state.GroupInfo, len(paths))
 	for i, path := range paths {
 		result[i] = state.GroupInfo{ID: path, Name: path}
