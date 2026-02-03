@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -123,7 +122,9 @@ func (h *Handlers) GetState(w http.ResponseWriter, r *http.Request) {
 
 	ss, err := state.GetSerializableState(h.oauthProxy, reqObj)
 	if err != nil {
-		http.Error(w, "authentication failed", http.StatusInternalServerError)
+		// Include original error in response body for obot server to detect session expiration.
+		// obot checks for "record not found" or "session ticket cookie failed validation" in the body.
+		http.Error(w, fmt.Sprintf("authentication failed: %v", err), http.StatusInternalServerError)
 		h.logError("get state: %v", err)
 		return
 	}
@@ -174,6 +175,7 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 
 // ListAuthGroups lists all available groups from Keycloak Admin API.
 // Uses client credentials flow (service account) to access Admin API.
+// Supports optional "name" query parameter for server-side filtering.
 // Returns empty list if group search is disabled or on any error.
 func (h *Handlers) ListAuthGroups(w http.ResponseWriter, r *http.Request) {
 	emptyGroups := []state.GroupInfo{}
@@ -191,14 +193,16 @@ func (h *Handlers) ListAuthGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := kc.ListAllGroups(r.Context())
+	// Support name filter from query parameter (obot passes ?name=xxx)
+	nameFilter := r.URL.Query().Get("name")
+	groups, err := kc.SearchGroups(r.Context(), nameFilter)
 	if err != nil {
 		h.logWarn("list groups from Admin API: %v", err)
 		h.writeJSON(w, emptyGroups)
 		return
 	}
 
-	h.logDebug("raw groups from API: %d top-level", len(groups))
+	h.logDebug("raw groups from API: %d top-level (filter=%q)", len(groups), nameFilter)
 
 	flatGroups := client.FlattenGroups(groups)
 	groupInfos := make([]state.GroupInfo, len(flatGroups))
@@ -210,12 +214,48 @@ func (h *Handlers) ListAuthGroups(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, groupInfos)
 }
 
-// ListUserAuthGroups is a no-op placeholder for per-user group listing.
-// Keycloak Admin API requires special permissions for this operation,
-// so we return an empty list. The request body is discarded.
+// ListUserAuthGroups lists groups for a specific user via Keycloak Admin API.
+// Request body contains the Keycloak user ID (providerUserID).
+// Returns empty list if group search is disabled or on any error.
 func (h *Handlers) ListUserAuthGroups(w http.ResponseWriter, r *http.Request) {
-	_, _ = io.Copy(io.Discard, r.Body)
-	h.writeJSON(w, []state.GroupInfo{})
+	emptyGroups := []state.GroupInfo{}
+
+	// Read user ID from request body
+	userID, err := io.ReadAll(r.Body)
+	if err != nil || len(userID) == 0 {
+		h.logDebug("list user groups: empty or invalid user ID")
+		h.writeJSON(w, emptyGroups)
+		return
+	}
+
+	if !h.config.GroupSearchEnabled {
+		h.logDebug("group search disabled")
+		h.writeJSON(w, emptyGroups)
+		return
+	}
+
+	kc, err := h.serviceClient.GetAdminClient(r.Context())
+	if err != nil {
+		h.logWarn("get admin client: %v", err)
+		h.writeJSON(w, emptyGroups)
+		return
+	}
+
+	groups, err := kc.GetUserGroups(r.Context(), string(userID))
+	if err != nil {
+		h.logWarn("get user groups from Admin API: %v", err)
+		h.writeJSON(w, emptyGroups)
+		return
+	}
+
+	h.logDebug("user %s has %d groups", string(userID), len(groups))
+
+	groupInfos := make([]state.GroupInfo, len(groups))
+	for i, g := range groups {
+		groupInfos[i] = state.GroupInfo{ID: g.Path, Name: g.Name}
+	}
+
+	h.writeJSON(w, groupInfos)
 }
 
 // GetIconURL returns a handler that fetches the user's profile picture URL
@@ -229,34 +269,9 @@ func (h *Handlers) GetIconURL() http.HandlerFunc {
 	})
 }
 
-// OAuthProxyHandler returns the underlying oauth2-proxy HTTP handler with redirect middleware
+// OAuthProxyHandler returns the underlying oauth2-proxy HTTP handler
 func (h *Handlers) OAuthProxyHandler() http.HandlerFunc {
-	return h.RedirectOn401Middleware(h.oauthProxy.ServeHTTP)
-}
-
-// RedirectOn401Middleware intercepts 401 responses and redirects to OAuth login flow
-func (h *Handlers) RedirectOn401Middleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		next(wrapped, r)
-
-		// Only redirect on 401 for non-OAuth endpoints to avoid redirect loops
-		if wrapped.statusCode != http.StatusUnauthorized || isOAuthFlowEndpoint(r.URL.Path) {
-			return
-		}
-
-		h.logDebug("Intercepted 401, redirecting to OAuth login flow: %s", r.URL.Path)
-		startURL := "/oauth2/start?rd=" + url.QueryEscape(r.URL.RequestURI())
-		http.Redirect(w, r, startURL, http.StatusFound)
-	}
-}
-
-// isOAuthFlowEndpoint checks if the path is part of OAuth flow to avoid redirect loops
-func isOAuthFlowEndpoint(path string) bool {
-	return path == "/oauth2/start" ||
-		path == "/oauth2/callback" ||
-		path == "/oauth2/redirect" ||
-		path == "/oauth2/sign_out"
+	return h.oauthProxy.ServeHTTP
 }
 
 // writeJSON encodes v as JSON to the response writer
