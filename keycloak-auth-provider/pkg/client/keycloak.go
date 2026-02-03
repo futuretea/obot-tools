@@ -20,10 +20,10 @@ var (
 )
 
 const (
-	defaultTimeout     = 30 * time.Second
-	tokenExpiryBuffer  = 30 * time.Second
-	bearerPrefix       = "Bearer "
-	contentTypeJSON    = "application/json"
+	defaultTimeout    = 30 * time.Second
+	tokenExpiryBuffer = 30 * time.Second
+	bearerPrefix      = "Bearer "
+	contentTypeJSON   = "application/json"
 )
 
 // Group represents a Keycloak group from Admin API
@@ -280,6 +280,20 @@ func (c *Client) GetGroupByID(ctx context.Context, groupID string) (*Group, erro
 		return nil, fmt.Errorf("parse group: %w", err)
 	}
 	return &group, nil
+}
+
+// GetUserGroups fetches groups for a specific user by Keycloak user ID
+func (c *Client) GetUserGroups(ctx context.Context, userID string) ([]Group, error) {
+	body, err := c.get(ctx, "/users/"+url.PathEscape(userID)+"/groups")
+	if err != nil {
+		return nil, err
+	}
+
+	var groups []Group
+	if err := json.Unmarshal(body, &groups); err != nil {
+		return nil, fmt.Errorf("parse user groups: %w", err)
+	}
+	return groups, nil
 }
 
 // FlattenGroups flattens a hierarchical group tree into a flat slice.
