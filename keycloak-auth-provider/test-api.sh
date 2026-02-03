@@ -19,9 +19,9 @@ echo "2. GET /obot-list-auth-groups"
 curl -s "$PROVIDER_URL/obot-list-auth-groups" | jq .
 echo ""
 
-# Test 3: List user auth groups (no-op)
+# Test 3: List user auth groups (requires valid Keycloak user ID)
 echo "3. POST /obot-list-user-auth-groups"
-curl -s -X POST -d "test" "$PROVIDER_URL/obot-list-user-auth-groups" | jq .
+curl -s -X POST -d "${KEYCLOAK_USER_ID:-test-user-id}" "$PROVIDER_URL/obot-list-user-auth-groups" | jq .
 echo ""
 
 echo "Done."
