@@ -22,11 +22,67 @@ func main() {
 		fmt.Println("OBOT_QWEN_MODEL_PROVIDER_BASE_URL environment variable not set, credential must be provided on a per-request basis")
 	}
 
+	baseURL, err := normalizeEndpoint(endpoint)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid endpoint URL %q: %v\n", endpoint, err)
+		os.Exit(1)
+	}
+
+	cfg := &proxy.Config{
+		APIKey:                apiKey,
+		PersonalAPIKeyHeader:  "X-Obot-OBOT_QWEN_MODEL_PROVIDER_API_KEY",
+		PersonalBaseURLHeader: "X-Obot-OBOT_QWEN_MODEL_PROVIDER_BASE_URL",
+		ListenPort:            os.Getenv("PORT"),
+		BaseURL:               baseURL,
+		RewriteModelsFn: proxy.RewriteAllModelsWithUsageMap(map[string][]func(string) bool{
+			"text-embedding": {func(id string) bool { return strings.Contains(strings.ToLower(id), "embedding") }},
+			"image-generation": {func(id string) bool {
+				lower := strings.ToLower(id)
+				return strings.Contains(lower, "image") || strings.Contains(lower, "stable-diffusion")
+			}},
+			"vision": {func(id string) bool { return strings.Contains(strings.ToLower(id), "-vl") }},
+			"llm": {func(id string) bool {
+				lower := strings.ToLower(id)
+				return !strings.Contains(lower, "embedding") &&
+					!strings.Contains(lower, "image") &&
+					!strings.Contains(lower, "stable-diffusion") &&
+					!strings.Contains(lower, "-vl")
+			}},
+		}),
+		Name: "Qwen",
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "validate" {
+		if err := cfg.Validate("/tools/qwen-model-provider/validate"); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Register thinking middleware only when the env var is explicitly set,
+	// allowing users to control the enable_thinking parameter.
+	// When unset, the parameter is not sent and the API default behavior applies.
+	if thinkingEnv := os.Getenv("OBOT_QWEN_MODEL_PROVIDER_ENABLE_THINKING"); thinkingEnv != "" {
+		enableThinking := strings.EqualFold(thinkingEnv, "true")
+		cfg.CustomPathHandleFuncs = map[string]http.HandlerFunc{
+			proxy.ChatCompletionsPath: thinkingMiddleware(enableThinking, &httputil.ReverseProxy{
+				Director: newProxyDirector(cfg),
+			}),
+		}
+	}
+
+	if err := proxy.Run(cfg); err != nil {
+		panic(err)
+	}
+}
+
+// normalizeEndpoint trims trailing slashes, parses the URL, infers the scheme,
+// and ensures the path ends with /v1.
+func normalizeEndpoint(endpoint string) (string, error) {
 	endpoint = strings.TrimRight(endpoint, "/")
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid endpoint URL %q: %v\n", endpoint, err)
-		os.Exit(1)
+		return "", err
 	}
 
 	if u.Scheme == "" {
@@ -37,48 +93,7 @@ func main() {
 		}
 	}
 
-	enableThinking := strings.EqualFold(os.Getenv("OBOT_QWEN_MODEL_PROVIDER_ENABLE_THINKING"), "true")
-
-	cfg := &proxy.Config{
-		APIKey:                apiKey,
-		PersonalAPIKeyHeader:  "X-Obot-OBOT_QWEN_MODEL_PROVIDER_API_KEY",
-		PersonalBaseURLHeader: "X-Obot-OBOT_QWEN_MODEL_PROVIDER_BASE_URL",
-		ListenPort:            os.Getenv("PORT"),
-		BaseURL:               strings.TrimSuffix(u.String(), "/v1") + "/v1",
-		RewriteModelsFn: proxy.RewriteAllModelsWithUsageMap(map[string][]func(string) bool{
-			"text-embedding":  {func(id string) bool { return strings.Contains(strings.ToLower(id), "embedding") }},
-			"image-generation": {func(id string) bool { return strings.Contains(strings.ToLower(id), "image") }},
-			"llm": {func(id string) bool {
-				lower := strings.ToLower(id)
-				return !strings.Contains(lower, "embedding") && !strings.Contains(lower, "image")
-			}},
-		}),
-		Name:                  "Qwen",
-	}
-
-	if enableThinking {
-		// Ensure URL is parsed before creating the director.
-		if err := cfg.EnsureURL(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to parse base URL: %v\n", err)
-			os.Exit(1)
-		}
-		cfg.CustomPathHandleFuncs = map[string]http.HandlerFunc{
-			"/v1/chat/completions": thinkingMiddleware(enableThinking, &httputil.ReverseProxy{
-				Director: newProxyDirector(cfg),
-			}),
-		}
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "validate" {
-		if err := cfg.Validate("/tools/qwen-model-provider/validate"); err != nil {
-			os.Exit(1)
-		}
-		return
-	}
-
-	if err := proxy.Run(cfg); err != nil {
-		panic(err)
-	}
+	return strings.TrimSuffix(u.String(), "/v1") + "/v1", nil
 }
 
 // newProxyDirector creates a director function that mirrors the proxy package's proxyDirector.

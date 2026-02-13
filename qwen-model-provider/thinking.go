@@ -10,7 +10,8 @@ import (
 )
 
 // thinkingMiddleware returns an http.HandlerFunc that injects the "enable_thinking" field
-// into the JSON request body of chat completion requests, then delegates to the next handler.
+// into the "chat_template_kwargs" object of the JSON request body for chat completion requests,
+// then delegates to the next handler.
 func thinkingMiddleware(enableThinking bool, next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -29,10 +30,25 @@ func thinkingMiddleware(enableThinking bool, next http.Handler) http.HandlerFunc
 			return
 		}
 
-		// Only inject enable_thinking if not already set by the caller
-		if _, exists := reqBody["enable_thinking"]; !exists {
-			reqBody["enable_thinking"] = enableThinking
+		// Get or create chat_template_kwargs object
+		var chatTemplateKwargs map[string]any
+		if existing, exists := reqBody["chat_template_kwargs"]; exists {
+			if existingMap, ok := existing.(map[string]any); ok {
+				chatTemplateKwargs = existingMap
+			} else {
+				chatTemplateKwargs = make(map[string]any)
+			}
+		} else {
+			chatTemplateKwargs = make(map[string]any)
 		}
+
+		// Only inject enable_thinking if not already set by the caller
+		if _, exists := chatTemplateKwargs["enable_thinking"]; !exists {
+			chatTemplateKwargs["enable_thinking"] = enableThinking
+		}
+
+		// Update the request body with the modified chat_template_kwargs
+		reqBody["chat_template_kwargs"] = chatTemplateKwargs
 
 		modified, err := json.Marshal(reqBody)
 		if err != nil {
