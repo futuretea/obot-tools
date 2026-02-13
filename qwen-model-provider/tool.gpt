@@ -1,0 +1,44 @@
+Name: Qwen
+Description: Model Provider for Qwen (DashScope)
+Model Provider: true
+Credential: ../placeholder-credential as qwen-model-provider with OBOT_QWEN_MODEL_PROVIDER_BASE_URL;OBOT_QWEN_MODEL_PROVIDER_API_KEY;OBOT_QWEN_MODEL_PROVIDER_ENABLE_THINKING as env_vars
+Metadata: noUserAuth: qwen-model-provider
+
+#!sys.daemon ${GPTSCRIPT_TOOL_DIR}/bin/gptscript-go-tool
+
+---
+!metadata:Qwen:providerMeta
+{
+    "icon": "/admin/assets/qwen_icon.svg",
+    "iconDark": "/admin/assets/qwen_icon.svg",
+    "link": "https://help.aliyun.com/zh/model-studio/",
+    "description": "Model Provider for Qwen models hosted on Alibaba Cloud DashScope.",
+    "envVars": [
+        {
+            "name": "OBOT_QWEN_MODEL_PROVIDER_BASE_URL",
+            "friendlyName": "Base URL",
+            "description": "Base URL for the Qwen OpenAI-compatible API (e.g. http://localhost:8000/v1 for local vLLM, or https://dashscope.aliyuncs.com/compatible-mode/v1 for DashScope)",
+            "sensitive": false
+        },
+        {
+            "name": "OBOT_QWEN_MODEL_PROVIDER_API_KEY",
+            "friendlyName": "API Key",
+            "description": "API Key for the Qwen API.",
+            "sensitive": true
+        }
+    ],
+    "optionalEnvVars": [
+        {
+            "name": "OBOT_QWEN_MODEL_PROVIDER_ENABLE_THINKING",
+            "friendlyName": "Enable Thinking",
+            "description": "Set to 'true' to enable thinking/reasoning mode for Qwen3 models. Default: false.",
+            "sensitive": false
+        }
+    ]
+}
+
+---
+Name: validate
+Description: Validate the Qwen DashScope API key
+
+#!${GPTSCRIPT_TOOL_DIR}/bin/gptscript-go-tool validate

@@ -61,6 +61,8 @@ modelProviders:
     reference: ./deepseek-model-provider
   generic-openai-model-provider:
     reference: ./generic-openai-model-provider
+  qwen-model-provider:
+    reference: ./qwen-model-provider
 
 authProviders:
   github-auth-provider:
