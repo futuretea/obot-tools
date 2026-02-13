@@ -72,6 +72,30 @@ VERSIONS
 )"
 
 cd /obot-tools
+
+if [ ! -e credentials ]; then
+    git clone --depth=1 https://github.com/gptscript-ai/credentials
+fi
+REGISTRY_REMAP+=('github.com/gptscript-ai/credentials=/obot-tools/credentials')
+OBOT_SERVER_VERSIONS="$(
+    cat <<VERSIONS
+github.com/gptscript-ai/credentials=$(cd /obot-tools/credentials && git rev-parse --short HEAD),${OBOT_SERVER_VERSIONS}
+VERSIONS
+)"
+
+cd /obot-tools
+
+if [ ! -e gateway-creds ]; then
+    git clone --depth=1 https://github.com/gptscript-ai/gateway-creds
+fi
+REGISTRY_REMAP+=('github.com/gptscript-ai/gateway-creds=/obot-tools/gateway-creds')
+OBOT_SERVER_VERSIONS="$(
+    cat <<VERSIONS
+github.com/gptscript-ai/gateway-creds=$(cd /obot-tools/gateway-creds && git rev-parse --short HEAD),${OBOT_SERVER_VERSIONS}
+VERSIONS
+)"
+
+cd /obot-tools
 cat <<EOF >.envrc.tools.providers
 export GPTSCRIPT_TOOL_REMAP="$(
     IFS=','
