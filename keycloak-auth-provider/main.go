@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	oauth2proxy "github.com/oauth2-proxy/oauth2-proxy/v7"
 	"github.com/oauth2-proxy/oauth2-proxy/v7/pkg/apis/options"
@@ -17,12 +18,12 @@ import (
 )
 
 const (
-	providerType      = "keycloak-oidc"
-	providerName      = "keycloak"
-	cookieName        = "obot_access_token"
-	sessionTablePfx   = "keycloak_"
-	csrfExpireSeconds = 30 * 60 // 30 minutes
-	listenHost        = "127.0.0.1"
+	providerType    = "keycloak-oidc"
+	providerName    = "keycloak"
+	cookieName      = "obot_access_token"
+	sessionTablePfx = "keycloak_"
+	csrfExpire      = 30 * time.Minute
+	listenHost      = "127.0.0.1"
 )
 
 func main() {
@@ -127,7 +128,7 @@ func configureCookie(opts *options.Options, cfg *config.Config) {
 	opts.Cookie.Name = cookieName
 	opts.Cookie.Secret = string(bytes.TrimSpace(cfg.CookieSecret))
 	opts.Cookie.Secure = strings.HasPrefix(cfg.ObotServerURL, "https://")
-	opts.Cookie.CSRFExpire = csrfExpireSeconds
+	opts.Cookie.CSRFExpire = csrfExpire
 }
 
 func configureTemplates(opts *options.Options, cfg *config.Config) {
