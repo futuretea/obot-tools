@@ -11,6 +11,7 @@ Metadata: noUserAuth: qwen-model-provider
 {
     "icon": "https://avatars.githubusercontent.com/u/141221163?s=48&v=4",
     "link": "https://github.com/QwenLM/Qwen",
+    "dialect": "OpenAIChatCompletions",
     "description": "Model Provider for Qwen models via any OpenAI-compatible API endpoint.",
     "envVars": [
         {
